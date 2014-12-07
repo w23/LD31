@@ -85,16 +85,33 @@ StageLocal = function (camera) {
 		vnode.game_node = node;
 		vnode.position.set(node.pos.x, node.pos.y, node.pos.z);
 		vnode.rotation.set(0, Math.random() * 3.1415926, 0);
+    vnode.castShadow = true;
+    vnode.receiveShadow = true;
 		node.visual_node = vnode;
 		this._scene.add(vnode);
 		this._pickable.push(vnode);
 		return vnode;
 	} // StageLocal.makeVisualNode
 
+  var ground_geometry = new THREE.PlaneBufferGeometry(1000, 1000, 8, 8);
+  this._ground = new THREE.Mesh(ground_geometry, new THREE.MeshLambertMaterial({color: 0x007b0c}));
+  this._ground.rotation.set(-3.1415926/2, 0, 0);
+  this._ground.castShadow = false;
+  this._ground.receiveShadow = true;
+  this._scene.add(this._ground);
+
 	this.generate();
 
 	this._sun = new THREE.DirectionalLight(0xffffff, 0.75);
-	this._sun.position.set(1, 1, 1);
+	this._sun.position.set(100, 100, 100);
+  this._sun.castShadow = true;
+  this._sun.shadowCameraNear = 50;
+  this._sun.shadowCameraFar = 500;
+  this._sun.shadowCameraFov = 50;
+  this._sun.shadowBias = 0.0001;
+  this._sun.shadowDarkness = 0.5;
+  this._sun.shadowMapWidth = 1024;
+  this._sun.shadowMapHeight = 1024;
 	this._scene.add(this._sun);
 
 	this._camera.far = 10000;
@@ -128,7 +145,7 @@ StageLocal = function (camera) {
 			),
 			new THREE.Vector3(fleet.dst.pos.x, fleet.dst.pos.y, fleet.dst.pos.z)
 		);
-		var fleetlines = new THREE.Line(lines, new THREE.MeshBasicMaterial({color : fleet.player.color}), THREE.LinePieces);
+		var fleetlines = new THREE.Line(lines, new THREE.LineBasicMaterial({color : fleet.player.color}), THREE.LinePieces);
 		return fleetlines;
 	} // StageLocal.makeVisualFleet
 
@@ -138,6 +155,8 @@ StageLocal = function (camera) {
 			fleetobjs.add(this.makeVisualFleet(this._engine.fleets[i]));
 		}
 
+    renderer.shadowMapEnabled = true;
+    renderer.shadowMapType = THREE.PCFShadowMap;
 		renderer.render(fleetobjs, this._camera);
 
 		/*for (var n in this._player.knowledge.nodes) {
@@ -186,7 +205,11 @@ StageLocal = function (camera) {
 		var intersects = this._raycaster.intersectObjects(this._pickable);
 
 		if (intersects.length > 0) {
-			return intersects[0].object.game_node;
+      var obj = intersects[0].object;
+      if (obj == this._ground)
+        return null;
+
+			return obj.game_node;
 		}
 		return null;
 	} // StageLocal.pick
@@ -221,7 +244,7 @@ StageLocal = function (camera) {
   this.rotate = function (dx, dy) {
     this._rotation += dx;
 
-    this._camera.position.set(Math.cos(this._rotation)*300, 180, 300*Math.sin(this._rotation));
+    this._camera.position.set(Math.cos(this._rotation)*300, 280, 300*Math.sin(this._rotation));
     this._camera.lookAt(new THREE.Vector3(0, 0, 0));
   }
 } // StageLocal
