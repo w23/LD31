@@ -95,13 +95,16 @@ EXP.FleetEngine = function (slowness, listener) {
 		// process fleets in flight
 		var arrived = [];
 		var in_flight = [];
+		for (var i = 0; i < this.players.length; ++i) {
+			this.players[i].fleets = [];
+		}
 		for (var i = 0; i < this.fleets.length; ++i) {
 			var fleet = this.fleets[i];
-			fleet.time_left -= 1;
-			if (fleet.time_left < 1) {
+			if (--fleet.time_left < 1) {
 				arrived.push(fleet);
 			} else {
 				in_flight.push(fleet);
+				fleet.player.fleets.push(fleet);
 			}
 		}
 		this.fleets = in_flight;
@@ -109,10 +112,6 @@ EXP.FleetEngine = function (slowness, listener) {
 		// process arrived fleets (TODO deterministic order)
 		for (var i = 0; i < arrived.length; ++i) {
 			var fleet = arrived[i];
-			// remove from active fleets
-			fleet.player.fleets = fleet.player.fleets.filter(function(a){return a != fleet;});
-
-			this.listener.fevFleetArrived(fleet);
 
 			var loser = undefined;
 			if (fleet.player == fleet.dst.player) {
@@ -149,6 +148,7 @@ EXP.FleetEngine = function (slowness, listener) {
 					defence: fleet.dst.attack
 				}
 
+				this.listener.fevFleetArrived(fleet);
 				// notification on capture
 				if (winner == fleet.player) {
 					this.listener.fevNodeCaptured(fleet.dst);
@@ -156,7 +156,7 @@ EXP.FleetEngine = function (slowness, listener) {
 			} // if battle
 
 			// mark player as dead
-			if (loser && loser.nodes.length == 0 && loser.fleets.length == 0) {
+			if (loser && (loser.nodes.length == 0) && (loser.fleets.length == 0)) {
 				loser.dead = true;
 				this.listener.fevPlayerDied(loser);
 				return;
@@ -191,7 +191,7 @@ AI = function (params) {
 		nodes = nodes.slice(0, this._attacking_nodes_count);
 
 		if (nodes.length == 0) {
-			console.log("AI ", this, " has no nodes");
+			//console.log("AI ", this, " has no nodes");
 			return;
 		}
 
@@ -207,7 +207,7 @@ AI = function (params) {
 		}
 
 		if (!dst) {
-			console.log("AI ", this, " has nowhere to send fleet to");
+			//console.log("AI ", this, " has nowhere to send fleet to");
 			return;
 		}
 
@@ -216,8 +216,6 @@ AI = function (params) {
 		}
 	}
 }
-
-var highlighted;
 
 var player_colors = [
 	0x00ff00,
@@ -229,11 +227,12 @@ var player_colors = [
 	0xff8000
 ]
 
-Stage = function (prevStage) {
+Stage = function (camera) {
 	this._pickable = [];
+	this._camera = camera;
 	this._scene = new THREE.Scene();
 	this._engine = new EXP.FleetEngine(10, this);
-	this._highlight = null;
+	this._highlight = [];
 
 	this._no_player = this._engine.createPlayer({growth:0.1, color:0x111111});
 	this._player = this._engine.createPlayer({growth:1, color:0x00ff00});
@@ -248,8 +247,8 @@ Stage = function (prevStage) {
 					Math.ceil(0x8f * Math.random()) + 
 					Math.ceil(0x8f * Math.random())<<16*/
 			}),
-			turn_delay: 10,
-			attacking_nodes_count: 3
+			turn_delay: 100,
+			attacking_nodes_count: 1
 		}));
 	}
 
@@ -265,11 +264,11 @@ Stage = function (prevStage) {
 	this.makeVisualNode = function (node) {
 		var geom = new THREE.SphereGeometry(node.production * .25);
 		var mat = new THREE.MeshPhongMaterial({
-			ambient: 0x030303,
+			ambient: 0x444444,
 			emissive: 0x101010,
 			color: 0xdddddd,
-			specular: 0x009900,
-			shininess: 30
+			specular: 0xffffff,
+			shininess: 100
 		});
 		var vnode = new THREE.Mesh(geom, mat);
 		vnode.game_node = node;
@@ -282,10 +281,10 @@ Stage = function (prevStage) {
 		return vnode;
 	}
 
-	var count = 100;
+	var count = 40;
 	var SX = 20;
 	var SY = 20;
-	var SZ = 0;
+	var SZ = 2;
 	var pw_min = 1, pw_max = 4;
 	for (var i = 0; i < count; ++i) {
 		var power = Math.random() * (pw_max - pw_min) + pw_min;
@@ -307,7 +306,7 @@ Stage = function (prevStage) {
 	}
 
 	/*for (var i = 0; i < 6; ++i) {
-		var light = new THREE.PointLight(Math.random() * 0xffffff, 6, 15);
+		var light = new THREE.PointLight(Math.random() * 0xffffff, 3, 15);
 		light.position.set(
 			Math.random() * 2 * SX - SX,
 			Math.random() * 2 * SY - SY,
@@ -316,22 +315,23 @@ Stage = function (prevStage) {
 		this._scene.add(light);
 	}*/
 
-	var light = new THREE.DirectionalLight(0xffffff, 0.5);
+	var light = new THREE.DirectionalLight(0xffffff, 0.25);
 	light.position.set(1, 1, 1);
 	this._scene.add(light);
 
-	this.makeVisualFleetLine = function (fleet) {
+	this.makeVisualFleet = function (fleet) {
 		var f = 1.0 - (fleet.time_left / fleet.total_time);
+		var lines = new THREE.Geometry();
 		lines.vertices.push(
 			new THREE.Vector3(
-				fleet.src.x + (fleet.dst.x-fleet.src.x) * f,
-				fleet.src.y + (fleet.dst.y-fleet.src.y) * f,
-				fleet.src.z + (fleet.dst.z-fleet.src.z) * f
+				fleet.src.pos.x + (fleet.dst.pos.x-fleet.src.pos.x) * f,
+				fleet.src.pos.y + (fleet.dst.pos.y-fleet.src.pos.y) * f,
+				fleet.src.pos.z + (fleet.dst.pos.z-fleet.src.pos.z) * f
 			),
-			new THREE.Vector3(fleet.dst.x, fleet.dst.y, fleet.dst.z)
+			new THREE.Vector3(fleet.dst.pos.x, fleet.dst.pos.y, fleet.dst.pos.z)
 		);
-		var fleetlines = new THREE.Line(lines, player.material, THREE.LinePieces);
-		return line;
+		var fleetlines = new THREE.Line(lines, new THREE.MeshBasicMaterial({color : fleet.player.color}), THREE.LinePieces);
+		return fleetlines;
 	}
 
 	this.makePreviewLine = function (node, pos) {
@@ -352,26 +352,15 @@ Stage = function (prevStage) {
 		}
 	}
 
-	this.paint = function (renderer, camera) {
-		/*for (var i = 0; i < FleetEngine.nodes.length; ++i) {
-			var node = FleetEngine.nodes[i];
-			if (node.visual == highlighted) {
-				node.visual.material = new THREE.MeshBasicMaterial( { color: 0xff0000 } );
-			} else {
-				node.visual.material = node.player.material;
-			}
+	this.paint = function (renderer) {
+
+		var fleetobjs = new THREE.Scene();
+		for (var i = 0; i < this._engine.fleets.length; ++i) {
+			fleetobjs.add(this.makeVisualFleet(this._engine.fleets[i]));
 		}
 
-		var lines = new THREE.Geometry();
-		for (var i = 0; i < FleetEngine.fleets.length; ++i) {
-			var fleet = FleetEngine.fleets[i];
-		}
-		var fleetlines = new THREE.Line(lines, player.material, THREE.LinePieces);
+		renderer.render(fleetobjs, this._camera);
 
-		scene.add(fleetlines);
-		renderer.render(scene, camera);
-		scene.remove(fleetlines);
-*/
 		/*for (var n in this._player.knowledge.nodes) {
 			var node = this._player.knowledge.nodes[n];
 			if (node.player) {
@@ -384,34 +373,62 @@ Stage = function (prevStage) {
 			node.visual_node.material.emissive.setHex(node.player.color);
 		}
 
-		if (highlighted) {
-			for (var i = 0; i < highlighted.length; ++i) {
-				var node = highlighted[i];
-				node.emissive_cache = node.visual_node.material.emissive.getHex();
-				node.visual_node.material.emissive.setHex(0xff9999);
-			}
+		for (var i = 0; i < this._highlight.length; ++i) {
+			var node = this._highlight[i];
+			node.emissive_cache = node.visual_node.material.emissive.getHex();
+			node.visual_node.material.emissive.setHex(0xff9999);
 		}
 
-		renderer.render(this._scene, camera);
+		if (this._arrow) {
+			this._scene.add(this._arrow);	
+		}
 
-		if (highlighted) {
-			for (var i = 0; i < highlighted.length; ++i) {
-				var node = highlighted[i];
+		renderer.render(this._scene, this._camera);
+
+		if (this._arrow) {
+			this._scene.remove(this._arrow);	
+		}
+
+		if (this._highlight) {
+			for (var i = 0; i < this._highlight.length; ++i) {
+				var node = this._highlight[i];
 				node.visual_node.material.emissive.setHex(node.emissive_cache);
 			}
 		}
 	}
 
+	this.hlClear = function () {
+		this._highlight = [];
+	}
+
+	this.hlAdd = function (node) {
+		this._highlight.push(node);
+	}
+
 	this._raycaster = new THREE.Raycaster();
-	this.pick = function (x, y, camera) {
-		var vector = new THREE.Vector3(x, y, camera.near).unproject(camera);
-		this._raycaster.set(camera.position, vector.sub(camera.position ).normalize());
+	this.pick = function (x, y) {
+		var vector = new THREE.Vector3(x, y, this._camera.near).unproject(this._camera);
+		this._raycaster.set(this._camera.position, vector.sub(this._camera.position).normalize());
 		var intersects = this._raycaster.intersectObjects(this._pickable);
 
 		if (intersects.length > 0) {
 			return intersects[0].object.game_node;
 		}
 		return null;
+	}
+
+	this.showArrow = function (src, x, y) {
+		if (!src) {
+			this._arrow = null;
+			return;
+		}
+
+		var g = new THREE.Geometry();
+		g.vertices.push(
+			new THREE.Vector3(src.pos.x, src.pos.y, src.pos.z),
+			new THREE.Vector3(x, y, this._camera.near).unproject(this._camera)
+		);
+		this._arrow = new THREE.Line(g, new THREE.MeshBasicMaterial({color : src.player.color}), THREE.LinePieces);
 	}
 
 	this.fevFleetArrived = function (fleet) {
@@ -433,27 +450,120 @@ var mouse = {x: 0, y: 0};
 var source = null;
 var stage = null;
 
-function main() {
-	renderer = new THREE.WebGLRenderer();
-	renderer.setClearColor(0x000000, 0);
+var tool = null;
 
-	var container = document.getElementById('game');
-	container.addEventListener('mousedown', onMouseDown, false);
-	container.addEventListener('mouseup', onMouseUp, false);
-	container.addEventListener('mousemove', onMouseMove, false);
-	container.addEventListener('contextmenu', function(e){e.preventDefault(); return false;}, false);
-	window.addEventListener('resize', onWindowResize, false);
-	container.innerHTML = '';
-	container.appendChild(renderer.domElement);
+ToolIdleHover = function () {
+	this.onMouseDown = function (x, y, e) {
+		var node = stage.pick(x, y);
+		if (node && node.player == stage._player) {
+			tool = new ToolSelectDestination(node);
+		} else {
+			tool = new ToolRotate(x, y);
+		}
+	}
 
-	camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 1.0, 100.0);
-	camera.position.z = 50;
-	camera.lookAt( new THREE.Vector3(0,0,0) );
+	this.onMouseMove = function (x, y, e) {
+		stage.hlClear();
+		var node = stage.pick(x, y);
+		if (node) {
+			stage.hlAdd(node);
+			// TODO web gui
+		}
+	}
 
-	stage = new Stage(null);
+	this.onMouseUp = function (x, y, e) {
+	}
+}
 
-	onWindowResize();
-	paint();
+ToolRotate = function (x, y) {
+	this._x = x;
+	this._y = y;
+
+	this.onMouseDown = function (x, y, e) {
+		console.error("Impossible");
+	}
+
+	this.onMouseMove = function (x, y, e) {
+		var dx = x - this._x;
+		var dy = y - this._y;
+
+		console.log(dx, dy);
+
+		this._x = x;
+		this._y = y;
+	}
+
+	this.onMouseUp = function (x, y, e) {
+		tool = new ToolIdleHover();
+	}
+}
+
+ToolSelectDestination = function (node) {
+	this._node = node;
+
+	this.valid = function () {
+		if (this._node.player != stage._player) {
+			tool = new ToolIdleHover();
+			// todo web ui
+			return false;
+		}
+		return true;
+	}
+
+	this.onMouseDown = function (x, y, e) {
+		stage.showArrow(null, x, y);
+		tool = new ToolIdleHover();
+	}
+
+	this.onMouseMove = function (x, y, e) {
+		stage.hlClear();
+		if (!this.valid()) {
+			return;
+		}
+
+		var node = stage.pick(x, y);
+		if (node) {
+			stage.hlAdd(node);
+			// TODO web gui
+		}
+
+		stage.hlAdd(this._node);
+		stage.showArrow(this._node, x, y);
+	}
+
+	this.onMouseUp = function (x, y, e) {
+		if (!this.valid()) {
+			return;
+		}
+
+		var dst = stage.pick(x, y);
+
+		if (dst) {
+			tool = new ToolSelectAmount(this._node, dst);
+		} else {
+			tool = new ToolIdleHover();
+		}
+	}
+}
+
+ToolSelectAmount = function (src, dst) {
+	this._src = src;
+	this._dst = dst;
+
+	this.onMouseDown = function (x, y, e) {
+	}
+
+	this.onMouseMove = function (x, y, e) {
+		// todo update web ui
+	}
+
+	this.onMouseUp = function (x, y, e) {
+		if (this._src.player == stage._player) {
+			stage._engine.sendFleet(stage._player, this._src, this._dst, this._src.population / 2);
+		}
+		stage.showArrow(null, x, y);
+		tool = new ToolIdleHover();
+	}
 }
 
 function to_screen(e) {
@@ -463,9 +573,37 @@ function to_screen(e) {
 	};
 }
 
+function onMouseDown(e) {
+	e.preventDefault();
+	var p = to_screen(e);
+	if (tool) {
+		tool.onMouseDown(p.x, p.y, e);
+	}
+	return false;
+}
+
+function onMouseUp(e) {
+	e.preventDefault();
+	var p = to_screen(e);
+	if (tool) {
+		tool.onMouseUp(p.x, p.y, e);
+	}
+	return false;
+}
+
+function onMouseMove(e) {
+	e.preventDefault();
+	var p = to_screen(e);
+	if (tool) {
+		tool.onMouseMove(p.x, p.y, e);
+	}
+	return false;
+}
+
 function paint() {
 	requestAnimationFrame(update);
-	stage.paint(renderer, camera);
+	renderer.clear();
+	stage.paint(renderer);
 }
 
 function update() {
@@ -480,33 +618,28 @@ function onWindowResize() {
 	camera.updateProjectionMatrix();
 }
 
-function onMouseDown(e) {
-	e.preventDefault();
+function main() {
+	renderer = new THREE.WebGLRenderer();
+	renderer.setClearColor(0x000000, 0);
+	renderer.autoClear = false;
 
-	var p = to_screen(e);
-	mouse.x = p.x;
-	mouse.y = p.y;
+	var container = document.getElementById('game');
+	container.addEventListener('mousedown', onMouseDown, false);
+	container.addEventListener('mouseup', onMouseUp, false);
+	container.addEventListener('mousemove', onMouseMove, false);
+	container.addEventListener('contextmenu', function(e){e.preventDefault(); return false;}, false);
+	window.addEventListener('resize', onWindowResize, false);
+	container.innerHTML = '';
+	container.appendChild(renderer.domElement);
 
-	source = stage.pick(p.x, p.y, camera);
-	return false;
+	camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 1.0, 100.0);
+	camera.position.z = 50;
+	camera.lookAt( new THREE.Vector3(0,0,0) );
+
+	stage = new Stage(camera);
+	tool = new ToolIdleHover();
+
+	onWindowResize();
+	paint();
 }
 
-function onMouseUp(e) {
-	e.preventDefault();
-	var p = to_screen(e);
-
-	object = pick(p.x, p.y);
-
-	if (object && source && source.player == player) {
-		stage._engine.sendFleet(player, source, object, source.population / 2);
-	}
-	source = null;
-}
-
-function onMouseMove(e) {
-	e.preventDefault();
-	var p = to_screen(e);
-	var obj = stage.pick(p.x, p.y, camera);
-	highlighted = obj ? [obj] : null;
-	return false;
-}
