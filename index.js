@@ -227,6 +227,8 @@ var player_colors = [
 	0xff8000
 ]
 
+/******************************************************************************/
+
 Stage = function (camera) {
 	this._pickable = [];
 	this._camera = camera;
@@ -243,10 +245,8 @@ Stage = function (camera) {
 			engine: this._engine,
 			player: this._engine.createPlayer({
 				growth: 1,
-				color: player_colors[i+1]/*0x808080 + 
-					Math.ceil(0x8f * Math.random()) + 
-					Math.ceil(0x8f * Math.random())<<16*/
-			}),
+				color: player_colors[i+1]
+      }),
 			turn_delay: 100,
 			attacking_nodes_count: 1
 		}));
@@ -272,10 +272,8 @@ Stage = function (camera) {
 		});
 		var vnode = new THREE.Mesh(geom, mat);
 		vnode.game_node = node;
-		vnode.position.x = node.pos.x;
-		vnode.position.y = node.pos.y;
-		vnode.position.z = node.pos.z;
-		node.visual_node = vnode;
+		vnode.position.set(node.pos.x, node.pos.y, node.pos.z);
+    node.visual_node = vnode;
 		this._scene.add(vnode);
 		this._pickable.push(vnode);
 		return vnode;
@@ -377,13 +375,13 @@ Stage = function (camera) {
 		}
 
 		if (this._arrow) {
-			this._scene.add(this._arrow);	
+			this._scene.add(this._arrow);
 		}
 
 		renderer.render(this._scene, this._camera);
 
 		if (this._arrow) {
-			this._scene.remove(this._arrow);	
+			this._scene.remove(this._arrow);
 		}
 
 		if (this._highlight) {
@@ -441,22 +439,28 @@ Stage = function (camera) {
 	}
 }
 
+/******************************************************************************/
+
 StageLocal = function (camera) {
 	this._camera = camera;
 	this._pickable = [];
 	this._scene = new THREE.Scene();
-	this._engine = new EXP.FleetEngine(10, this);
+	this._engine = new EXP.FleetEngine(1, this);
 	this._highlight = [];
+
+	this._ticks_per_second = 20;
+	this._next_tick_delta = 1000.0 / this._ticks_per_second;
+	this._next_tick = Date.now() + this._next_tick_delta;
 
 	this._no_player = this._engine.createPlayer({growth:0.1, color:0x111111});
 	this._player = this._engine.createPlayer({growth:1, color:0x00ff00});
 
 	this._ai = [];
-	for (var i = 0; i < 3; ++i) {
+	for (var i = 0; i < 4; ++i) {
 		this._ai.push(new AI({
 			engine: this._engine,
 			player: this._engine.createPlayer({
-				growth: 1,
+				growth: 0.5,
 				color: player_colors[i+1]
 			}),
 			turn_delay: 100,
@@ -465,9 +469,9 @@ StageLocal = function (camera) {
 	}
 
 	this.generate = function () {
-		var count = 10;
-		var SX = 400;
-		var SY = 400;
+		var count = 5;
+		var SX = 100;
+		var SY = 100;
 		var SZ = 0;
 		var pw_min = 1, pw_max = 4;
 		for (var y = 0; y <= count; ++y) {
@@ -491,9 +495,9 @@ StageLocal = function (camera) {
 					name: 'N' + i.toString(),
 					player: player,
 					pos: {
-						x: cx + Math.random() * 5,
-						y: cy + Math.random() * 5,
-						z: 5,
+						x: cx + Math.random() * (SX*2/count),
+						z: cy + Math.random() * (SY*2/count),
+						y: 5,
 					},
 					production: power,
 					attack: 1 / power + Math.random(),
@@ -514,10 +518,11 @@ StageLocal = function (camera) {
 		);
 		var geom = new THREE.BoxGeometry(
 			5 + 3*Math.random(),
-			5 + 3*Math.random(), 
+			5 + 3*Math.random(),
 			5 + 3*Math.random()
 		);
-		var mat = new THREE.MeshLambertMaterial({color: color.getHex()});
+		//var mat = new THREE.MeshLambertMaterial({color: color.getHex()});
+		var mat = new THREE.MeshBasicMaterial({color: color.getHex()});
 		var vnode = new THREE.Mesh(geom, mat);
 		vnode.game_node = node;
 		vnode.position.set(node.pos.x, node.pos.y, node.pos.z);
@@ -530,10 +535,14 @@ StageLocal = function (camera) {
 
 	this.generate();
 
+	var light = new THREE.DirectionalLight(0xffffff, 0.25);
+	light.position.set(1, 1, 1);
+	this._scene.add(light);
+
 	camera.far = 10000;
 	camera.updateProjectionMatrix();
-	camera.position.set(-600, 400, 600);
-	camera.lookAt(0, 0, 0);
+	camera.position.set(-80, 100, 320);
+	camera.lookAt(new THREE.Vector3(0, 0, 0));
 
 		this.update = function (time) {
 		var ticks_cap = 30;
@@ -549,6 +558,21 @@ StageLocal = function (camera) {
 			}
 		}
 	} // StageLocal.update
+
+	this.makeVisualFleet = function (fleet) {
+		var f = 1.0 - (fleet.time_left / fleet.total_time);
+		var lines = new THREE.Geometry();
+		lines.vertices.push(
+			new THREE.Vector3(
+				fleet.src.pos.x + (fleet.dst.pos.x-fleet.src.pos.x) * f,
+				fleet.src.pos.y + (fleet.dst.pos.y-fleet.src.pos.y) * f,
+				fleet.src.pos.z + (fleet.dst.pos.z-fleet.src.pos.z) * f
+			),
+			new THREE.Vector3(fleet.dst.pos.x, fleet.dst.pos.y, fleet.dst.pos.z)
+		);
+		var fleetlines = new THREE.Line(lines, new THREE.MeshBasicMaterial({color : fleet.player.color}), THREE.LinePieces);
+		return fleetlines;
+	} // StageLocal.makeVisualFleet
 
 	this.paint = function (renderer) {
 		var fleetobjs = new THREE.Scene();
@@ -567,29 +591,29 @@ StageLocal = function (camera) {
 
 		for (var i = 0; i < this._engine.nodes.length; ++i) {
 			var node = this._engine.nodes[i];
-			node.visual_node.material.emissive.setHex(node.player.color);
+			node.visual_node.material.color.setHex(node.player.color);
 		}
 
 		for (var i = 0; i < this._highlight.length; ++i) {
 			var node = this._highlight[i];
-			node.emissive_cache = node.visual_node.material.emissive.getHex();
-			node.visual_node.material.emissive.setHex(0xff9999);
+			node.emissive_cache = node.visual_node.material.color.getHex();
+			node.visual_node.material.color.setHex(0xff9999);
 		}
 
 		if (this._arrow) {
-			this._scene.add(this._arrow);	
+			this._scene.add(this._arrow);
 		}
 
 		renderer.render(this._scene, this._camera);
 
 		if (this._arrow) {
-			this._scene.remove(this._arrow);	
+			this._scene.remove(this._arrow);
 		}
 
 		if (this._highlight) {
 			for (var i = 0; i < this._highlight.length; ++i) {
 				var node = this._highlight[i];
-				node.visual_node.material.emissive.setHex(node.emissive_cache);
+				node.visual_node.material.color.setHex(node.emissive_cache);
 			}
 		}
 	} // StageLocal.paint
@@ -829,7 +853,7 @@ function main() {
 	camera.position.z = 50;
 	camera.lookAt( new THREE.Vector3(0,0,0) );
 
-	//stage = new Stage(camera);
+  //stage = new Stage(camera);
 	stage = new StageLocal(camera);
 	tool = new ToolIdleHover();
 
