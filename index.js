@@ -10,12 +10,14 @@ EXP.FleetEngine = function (slowness, listener) {
 	this.createPlayer = function (attrs) {
 		var player = {
 			//this.material = new THREE.MeshBasicMaterial({color: color});
+			name: attrs.name,
 			growth: +attrs.growth,
 			color: +attrs.color,
 			knowledge: {
 				nodes: {}
 			},
-			fleets: []
+			nodes: [], // TODO
+			fleets: [] // TODO
 		};
 		/* TODO existing knowledge */
 		this.players.push(player);
@@ -41,6 +43,7 @@ EXP.FleetEngine = function (slowness, listener) {
 			var player = this.players[i];
 			if (player == node.player) {
 				player.knowledge.nodes[node] = node;
+				player.nodes.push(node);
 			} else {
 				player.knowledge.nodes[node] = {
 					name: node.name,
@@ -63,11 +66,11 @@ EXP.FleetEngine = function (slowness, listener) {
 	}
 
 	this.sendFleet = function(player, src, dst, count) {
-		//var count = this.pop_fraction(src, fraction);
 		if (src.player != player || src.population < count) {
 			return null;
 		}
-		var total_time = FleetEngine.travel_time(src, dst);
+		//console.log("fleet from ", src.name, " to ", dst.name, " count ", count);
+		var total_time = this.travel_time(src, dst);
 		var fleet = {
 			player: player,
 			src: src,
@@ -77,6 +80,7 @@ EXP.FleetEngine = function (slowness, listener) {
 			time_left: +total_time
 		};
 		src.population -= count;
+		player.fleets.push(fleet);
 		this.fleets.push(fleet);
 		return fleet;
 	}
@@ -105,12 +109,16 @@ EXP.FleetEngine = function (slowness, listener) {
 		// process arrived fleets (TODO deterministic order)
 		for (var i = 0; i < arrived.length; ++i) {
 			var fleet = arrived[i];
+			// remove from active fleets
+			fleet.player.fleets = fleet.player.fleets.filter(function(a){return a != fleet;});
+
 			this.listener.fevFleetArrived(fleet);
 
+			var loser = undefined;
 			if (fleet.player == fleet.dst.player) {
 				fleet.dst.population += fleet.count;
 			} else {
-				var winner = undefined, loser = undefined;
+				var winner = undefined;
 				var attacker = fleet.count * fleet.src.attack;
 				var defender = fleet.dst.population * fleet.dst.defence;
 				// capture if attacking force is greater
@@ -119,6 +127,10 @@ EXP.FleetEngine = function (slowness, listener) {
 					loser = fleet.dst.player;
 					fleet.dst.population = (attacker - defender) / fleet.src.attack;
 					fleet.dst.player = fleet.player;
+
+					// update player stats
+					winner.nodes.push(fleet.dst);
+					loser.nodes = loser.nodes.filter(function(a){return a != fleet.dst;});
 				} else {
 					winner = fleet.player;
 					loser = fleet.dst.player;
@@ -137,16 +149,85 @@ EXP.FleetEngine = function (slowness, listener) {
 					defence: fleet.dst.attack
 				}
 
-				// notify listener
+				// notification on capture
 				if (winner == fleet.player) {
 					this.listener.fevNodeCaptured(fleet.dst);
 				}
 			} // if battle
+
+			// mark player as dead
+			if (loser && loser.nodes.length == 0 && loser.fleets.length == 0) {
+				loser.dead = true;
+				this.listener.fevPlayerDied(loser);
+				return;
+			}
 		} // for all arrived fleets
 	} // function tick()
 } // EXP.FleetEngine
 
+// very simple AI
+AI = function (params) {
+	this._engine = params.engine;
+	this._player = params.player;
+	this._turn_delay = params.turn_delay;
+	this._attacking_nodes_count = params.attacking_nodes_count;
+
+	this._turns_left = this._turn_delay;
+
+	this.tick = function () {
+		if (this._player.dead) return;
+
+		if (--this._turns_left > 0)
+			return;
+		this._turns_left = this._turn_delay;
+
+		// very simple AI:
+		// 1. find attacking_nodes_count nodes with max pop
+		// 2. find alien node closest to the most populated one
+		// 3. send all population from top attacking_nodes_count to that node
+
+		var nodes = this._player.nodes.slice(0, this._player.nodes.length);
+		nodes.sort(function(a,b) { return b.population - a.population;});
+		nodes = nodes.slice(0, this._attacking_nodes_count);
+
+		if (nodes.length == 0) {
+			console.log("AI ", this, " has no nodes");
+			return;
+		}
+
+		var dst = null;
+		for (var i = 0; i < this._engine.nodes.length; ++i) {
+			var node = this._engine.nodes[i];
+			if (node.player != this._player && (!dst ||
+				this._engine.travel_time(nodes[0],dst) >
+				this._engine.travel_time(nodes[0],node)))
+			{
+				dst = node;
+			}
+		}
+
+		if (!dst) {
+			console.log("AI ", this, " has nowhere to send fleet to");
+			return;
+		}
+
+		for (var i = 0; i < nodes.length; ++i) {
+			this._engine.sendFleet(this._player, nodes[i], dst, nodes[i].population);
+		}
+	}
+}
+
 var highlighted;
+
+var player_colors = [
+	0x00ff00,
+	0xff00ff,
+	0xffff00,
+	0x0000ff,
+	0x00ffff,
+	0x8000ff,
+	0xff8000
+]
 
 Stage = function (prevStage) {
 	this._pickable = [];
@@ -157,12 +238,20 @@ Stage = function (prevStage) {
 	this._no_player = this._engine.createPlayer({growth:0.1, color:0x111111});
 	this._player = this._engine.createPlayer({growth:1, color:0x00ff00});
 
-	this._ai = [
-		this._engine.createPlayer({growth:1, color:0xff00ff*Math.random()}),
-		this._engine.createPlayer({growth:1, color:0xff00ff*Math.random()}),
-		this._engine.createPlayer({growth:1, color:0xff00ff*Math.random()}),
-		this._engine.createPlayer({growth:1, color:0xff00ff*Math.random()})
-	];
+	this._ai = [];
+	for (var i = 0; i < 4; ++i) {
+		this._ai.push(new AI({
+			engine: this._engine,
+			player: this._engine.createPlayer({
+				growth: 1,
+				color: player_colors[i+1]/*0x808080 + 
+					Math.ceil(0x8f * Math.random()) + 
+					Math.ceil(0x8f * Math.random())<<16*/
+			}),
+			turn_delay: 10,
+			attacking_nodes_count: 3
+		}));
+	}
 
 	this._ticks_per_second = 20;
 	this._next_tick_delta = 1000.0 / this._ticks_per_second;
@@ -193,7 +282,7 @@ Stage = function (prevStage) {
 		return vnode;
 	}
 
-	var count = 20;
+	var count = 100;
 	var SX = 20;
 	var SY = 20;
 	var SZ = 0;
@@ -203,7 +292,7 @@ Stage = function (prevStage) {
 		var node = this._engine.createNode({
 			name: 'N' + i.toString(),
 			player: (i == 0) ? this._player :
-				(i-1 < this._ai.length) ? this._ai[i-1] : this._no_player,
+				(i-1 < this._ai.length) ? this._ai[i-1]._player : this._no_player,
 			pos: {
 				x: Math.random() * 2 * SX - SX,
 				y: Math.random() * 2 * SY - SY,
@@ -217,7 +306,7 @@ Stage = function (prevStage) {
 		this.makeVisualNode(node);
 	}
 
-	for (var i = 0; i < 6; ++i) {
+	/*for (var i = 0; i < 6; ++i) {
 		var light = new THREE.PointLight(Math.random() * 0xffffff, 6, 15);
 		light.position.set(
 			Math.random() * 2 * SX - SX,
@@ -225,7 +314,11 @@ Stage = function (prevStage) {
 			Math.random() * 2 * SZ - SZ
 		);
 		this._scene.add(light);
-	}
+	}*/
+
+	var light = new THREE.DirectionalLight(0xffffff, 0.5);
+	light.position.set(1, 1, 1);
+	this._scene.add(light);
 
 	this.makeVisualFleetLine = function (fleet) {
 		var f = 1.0 - (fleet.time_left / fleet.total_time);
@@ -247,6 +340,9 @@ Stage = function (prevStage) {
 	this.update = function (time) {
 		var ticks_cap = 30;
 		while (time > this._next_tick) {
+			for (var i = 0; i < this._ai.length; ++i) {
+				this._ai[i].tick();
+			}
 			this._engine.tick();
 			this._next_tick += this._next_tick_delta;
 			if (--ticks_cap == 0) {
@@ -316,6 +412,18 @@ Stage = function (prevStage) {
 			return intersects[0].object.game_node;
 		}
 		return null;
+	}
+
+	this.fevFleetArrived = function (fleet) {
+		//console.log("fleet arrived", fleet);
+	}
+
+	this.fevNodeCaptured = function (node) {
+		//console.log("node captured", node);
+	}
+
+	this.fevPlayerDied = function (player) {
+		console.log("Player ", player, " has died");
 	}
 }
 
