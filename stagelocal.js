@@ -94,12 +94,24 @@ StageLocal = function (camera) {
 		return vnode;
 	} // StageLocal.makeVisualNode
 
-  var ground_geometry = new THREE.PlaneBufferGeometry(2000, 2000, 16, 16);
-  this._ground = new THREE.Mesh(ground_geometry, new THREE.MeshLambertMaterial({color: 0x007b0c}));
+  var ground_geometry = new THREE.PlaneBufferGeometry(2000, 2000, 64, 64);
+  for (var i = 0; i < ground_geometry.attributes.position.array.length; i+=3) {
+    var x = ground_geometry.attributes.position.array[i+0];
+    var y = ground_geometry.attributes.position.array[i+1];
+    ground_geometry.attributes.position.array[i+2] =
+      Math.max(0,(x*x + y*y)-10000)/5000*Math.random();
+  }
+  ground_geometry.computeVertexNormals();
+  this._ground = new THREE.Mesh(ground_geometry,
+      new THREE.MeshLambertMaterial({
+        color: 0x007b0c,
+        shading: THREE.FlatShading
+      }));
   this._ground.rotation.set(-3.1415926/2, 0, 0);
   this._ground.castShadow = false;
   this._ground.receiveShadow = true;
   this._scene.add(this._ground);
+
 
 	this.generate();
 
