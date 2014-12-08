@@ -9,8 +9,8 @@ StageLocal = function (camera) {
 	this._next_tick_delta = 1000.0 / this._ticks_per_second;
 	this._next_tick = Date.now() + this._next_tick_delta;
 
-	this._no_player = this._engine.createPlayer({growth:0.1, color:0x808080});
-	this._player = this._engine.createPlayer({growth:1, color:0x00ff00});
+	this._no_player = this._engine.createPlayer({name:'nobody', growth:0.1, color:0x808080});
+	this._player = this._engine.createPlayer({name:'You', growth:1, color:0x00ff00});
 
   this._rotation = 0;
 
@@ -19,7 +19,8 @@ StageLocal = function (camera) {
 		this._ai.push(new AI({
 			engine: this._engine,
 			player: this._engine.createPlayer({
-				growth: 0.5,
+        name: 'AI ' + (i+1),
+				growth: 0.6,
 				color: player_colors[i+1]
 			}),
 			turn_delay: 100,
@@ -54,8 +55,8 @@ StageLocal = function (camera) {
 					name: 'N' + i.toString(),
 					player: player,
 					pos: {
-						x: cx + Math.random() * 1.6*(SX/count),
-						z: cy + Math.random() * 1.67*(SY/count),
+						x: cx + (0.5 - Math.random()) * 1.6*(SX/count),
+						z: cy + (0.5 - Math.random()) * 1.67*(SY/count),
 						y: 5,
 					},
 					production: power,
@@ -93,7 +94,7 @@ StageLocal = function (camera) {
 		return vnode;
 	} // StageLocal.makeVisualNode
 
-  var ground_geometry = new THREE.PlaneBufferGeometry(1000, 1000, 8, 8);
+  var ground_geometry = new THREE.PlaneBufferGeometry(2000, 2000, 16, 16);
   this._ground = new THREE.Mesh(ground_geometry, new THREE.MeshLambertMaterial({color: 0x007b0c}));
   this._ground.rotation.set(-3.1415926/2, 0, 0);
   this._ground.castShadow = false;
@@ -113,11 +114,6 @@ StageLocal = function (camera) {
   this._sun.shadowMapWidth = 1024;
   this._sun.shadowMapHeight = 1024;
 	this._scene.add(this._sun);
-
-	this._camera.far = 10000;
-	this._camera.updateProjectionMatrix();
-	this._camera.position.set(-80, 180, 220);
-	this._camera.lookAt(new THREE.Vector3(0, 0, 0));
 
 		this.update = function (time) {
 		var ticks_cap = 30;
@@ -224,9 +220,9 @@ StageLocal = function (camera) {
 		var g = new THREE.Geometry();
 		g.vertices.push(
 			new THREE.Vector3(src.pos.x, src.pos.y, src.pos.z),
-			new THREE.Vector3(x, y, this._camera.near).unproject(this._camera)
+			new THREE.Vector3(x, y, 0).unproject(this._camera)
 		);
-		this._arrow = new THREE.Line(g, new THREE.MeshBasicMaterial({color : src.player.color}), THREE.LinePieces);
+		this._arrow = new THREE.Line(g, new THREE.LineBasicMaterial({color : src.player.color}), THREE.LinePieces);
 	} // StageLocal.showArrow
 
 	this.fevFleetArrived = function (fleet) {
@@ -244,7 +240,12 @@ StageLocal = function (camera) {
   this.rotate = function (dx, dy) {
     this._rotation += dx;
 
-    this._camera.position.set(Math.cos(this._rotation)*300, 280, 300*Math.sin(this._rotation));
+    this._camera.position.set(Math.cos(this._rotation)*180, 180, 180*Math.sin(this._rotation));
     this._camera.lookAt(new THREE.Vector3(0, 0, 0));
   }
+
+  renderer.setClearColor(0x87ceeb, 0);
+	this._camera.far = 10000;
+	this._camera.updateProjectionMatrix();
+  this.rotate(0, 0);
 } // StageLocal

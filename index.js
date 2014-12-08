@@ -441,6 +441,37 @@ Stage = function (camera) {
 
 /*****************************************************************************/
 
+OverlayInfo = function (name) {
+  this._element = document.createElement('div');
+  this._element.id = name;
+  this._element.style.cssText = 'position:absolute;left:0px;top:0px;opacity:0.2;background-color:#fff;pointer-events:none';
+  this._fields = {}
+  document.body.appendChild(this._element);
+
+  this.setPosition = function (x, y) {
+    this._element.style.left = x+'px';
+    this._element.style.top = y+'px';
+  }
+
+  this.setField = function (name, text) {
+    var field = null;
+    if (!(name in this._fields)) {
+      field = document.createElement('div');
+      this._element.appendChild(field);
+      this._fields[name] = field;
+    } else {
+      field = this._fields[name];
+    }
+
+    field.innerHTML = name + ': ' + text;
+  }
+
+  this.remove = function () {
+    this._element.parentNode.removeChild(this._element);
+  }
+}
+
+
 var renderer = null;
 var camera = null;
 var mouse = {x: 0, y: 0};
@@ -449,15 +480,24 @@ var stage = null;
 
 var tool = null;
 
+setTool = function (new_tool) {
+  if (tool) {
+    tool.stop();
+  }
+  tool = new_tool;
+}
+
 /*****************************************************************************/
 
 ToolIdleHover = function () {
+  this._info = null;
+
 	this.onMouseDown = function (x, y, e) {
 		var node = stage.pick(x, y);
 		if (node && node.player == stage._player) {
-			tool = new ToolSelectDestination(node);
+			setTool(new ToolSelectDestination(node));
 		} else {
-			tool = new ToolRotate(x, y);
+			setTool(new ToolRotate(x, y));
 		}
 	}
 
@@ -466,12 +506,34 @@ ToolIdleHover = function () {
 		var node = stage.pick(x, y);
 		if (node) {
 			stage.hlAdd(node);
-			// TODO web gui
-		}
+      if (!this._info) {
+        this._info = new OverlayInfo('hover-info');
+      }
+      this._info.setField('name', node.name);
+      this._info.setField('player', node.player.name);
+      this._info.setField('population', node.population);
+      this._info.setField('production', node.production);
+      this._info.setField('attack', node.attack);
+      this._info.setField('defence', node.defence);
+      this._info.setPosition(e.clientX, e.clientY);
+		} else {
+      if (this._info) {
+        this._info.remove();
+        this._info = null;
+      }
+    }
 	}
 
 	this.onMouseUp = function (x, y, e) {
 	}
+  
+  this.stop = function () {
+		stage.hlClear();
+    if (this._info) {
+      this._info.remove();
+      this._info = null;
+    }
+  }
 }
 
 ToolRotate = function (x, y) {
@@ -493,8 +555,11 @@ ToolRotate = function (x, y) {
 	}
 
 	this.onMouseUp = function (x, y, e) {
-		tool = new ToolIdleHover();
+		setTool(new ToolIdleHover());
 	}
+
+  this.stop = function () {
+  }
 }
 
 ToolSelectDestination = function (node) {
@@ -502,7 +567,7 @@ ToolSelectDestination = function (node) {
 
 	this.valid = function () {
 		if (this._node.player != stage._player) {
-			tool = new ToolIdleHover();
+			setTool(new ToolIdleHover());
 			// todo web ui
 			return false;
 		}
@@ -511,7 +576,7 @@ ToolSelectDestination = function (node) {
 
 	this.onMouseDown = function (x, y, e) {
 		stage.showArrow(null, x, y);
-		tool = new ToolIdleHover();
+		setTool(new ToolIdleHover());
 	}
 
 	this.onMouseMove = function (x, y, e) {
@@ -532,37 +597,70 @@ ToolSelectDestination = function (node) {
 
 	this.onMouseUp = function (x, y, e) {
 		if (!this.valid()) {
+		  stage.showArrow(null, x, y);
 			return;
 		}
 
 		var dst = stage.pick(x, y);
 
-		if (dst) {
-			tool = new ToolSelectAmount(this._node, dst);
+		if (dst && dst != this._node) {
+			setTool(new ToolSelectAmount(this._node, dst));
 		} else {
-			tool = new ToolIdleHover();
+		  stage.showArrow(null, x, y);
+			setTool(new ToolIdleHover());
 		}
 	}
+
+  this.stop = function () {
+  }
 }
 
 ToolSelectAmount = function (src, dst) {
 	this._src = src;
 	this._dst = dst;
+  this._info = new OverlayInfo('amount');
+
+  var psrc = new THREE.Vector3(this._src.pos.x, this._src.pos.y, this._src.pos.z).project(camera);
+  var pdst = new THREE.Vector3(this._dst.pos.x, this._dst.pos.y, this._dst.pos.z).project(camera);
+  this._src_pos = {x: psrc.x, y: psrc.y};
+  this._dst_pos = {x: pdst.x, y: pdst.y};
+  this._v = {
+    x: this._dst_pos.x - this._src_pos.x,
+    y: this._dst_pos.y - this._src_pos.y
+  };
+  this._vlength = Math.sqrt(this._v.x*this._v.x + this._v.y*this._v.y);
 
 	this.onMouseDown = function (x, y, e) {
 	}
 
 	this.onMouseMove = function (x, y, e) {
-		// todo update web ui
+    var v = {
+      x: x - this._src_pos.x,
+      y: y - this._src_pos.y
+    };
+
+    var f = Math.max(0,Math.min(1,(v.x * this._v.x + v.y * this._v.y) / (this._vlength * Math.sqrt(v.x*v.x + v.y*v.y))));
+    this._info.setField('amount', this._src.population * f + ' of ' + this._src.population);
+    this._info.setPosition(e.clientX, e.clientY);
 	}
 
 	this.onMouseUp = function (x, y, e) {
+    var v = {
+      x: x - this._src_pos.x,
+      y: y - this._src_pos.y
+    };
+
+    var f = Math.max(0,Math.min(1,(v.x * this._v.x + v.y * this._v.y) / (this._vlength * Math.sqrt(v.x*v.x + v.y*v.y))));
 		if (this._src.player == stage._player) {
-			stage._engine.sendFleet(stage._player, this._src, this._dst, this._src.population / 2);
+			stage._engine.sendFleet(stage._player, this._src, this._dst, this._src.population * f);
 		}
 		stage.showArrow(null, x, y);
-		tool = new ToolIdleHover();
+		setTool(new ToolIdleHover());
 	}
+
+  this.stop = function () {
+    this._info.remove();
+  }
 }
 
 function to_screen(e) {
