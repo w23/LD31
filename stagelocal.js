@@ -20,7 +20,7 @@ StageLocal = function (camera) {
 			engine: this._engine,
 			player: this._engine.createPlayer({
         name: 'AI ' + (i+1),
-				growth: 0.6,
+				growth: 0.8,
 				color: player_colors[i+1]
 			}),
 			turn_delay: 100,

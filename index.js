@@ -628,29 +628,29 @@ ToolSelectAmount = function (src, dst) {
     x: this._dst_pos.x - this._src_pos.x,
     y: this._dst_pos.y - this._src_pos.y
   };
-  this._vlength = Math.sqrt(this._v.x*this._v.x + this._v.y*this._v.y);
+  this._vlength2 = this._v.x*this._v.x + this._v.y*this._v.y;
+
+  this.project = function (x, y) {
+    var v = {
+      x: x - this._src_pos.x,
+      y: y - this._src_pos.y
+    };
+
+    var vlen = (v.x * this._v.x + v.y * this._v.y) / this._vlength2;
+    return Math.max(0, Math.min(1, vlen));
+  }
 
 	this.onMouseDown = function (x, y, e) {
 	}
 
 	this.onMouseMove = function (x, y, e) {
-    var v = {
-      x: x - this._src_pos.x,
-      y: y - this._src_pos.y
-    };
-
-    var f = Math.max(0,Math.min(1,(v.x * this._v.x + v.y * this._v.y) / (this._vlength * Math.sqrt(v.x*v.x + v.y*v.y))));
+    var f = this.project(x, y);
     this._info.setField('amount', this._src.population * f + ' of ' + this._src.population);
     this._info.setPosition(e.clientX, e.clientY);
 	}
 
 	this.onMouseUp = function (x, y, e) {
-    var v = {
-      x: x - this._src_pos.x,
-      y: y - this._src_pos.y
-    };
-
-    var f = Math.max(0,Math.min(1,(v.x * this._v.x + v.y * this._v.y) / (this._vlength * Math.sqrt(v.x*v.x + v.y*v.y))));
+    var f = this.project(x, y);
 		if (this._src.player == stage._player) {
 			stage._engine.sendFleet(stage._player, this._src, this._dst, this._src.population * f);
 		}
